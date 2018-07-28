@@ -3,6 +3,10 @@
 
 using UnityEngine;
 
+#if UNITY_WSA && UNITY_2017_2_OR_NEWER
+using UnityEngine.XR.WSA.Input;
+#endif
+
 namespace HoloToolkit.Unity.InputModule
 {
     /// <summary>
@@ -11,10 +15,7 @@ namespace HoloToolkit.Unity.InputModule
     /// This class uses the InputSourcePointer to define the rules of stealing focus when a pointing ray is detected
     /// with a motion controller that supports pointing.
     /// </summary>
-    public class SimpleSinglePointerSelector :
-        MonoBehaviour,
-        ISourceStateHandler,
-        IInputHandler
+    public class SimpleSinglePointerSelector : MonoBehaviour, ISourceStateHandler, IInputHandler
     {
         #region Settings
 
@@ -24,14 +25,28 @@ namespace HoloToolkit.Unity.InputModule
         [Tooltip("The cursor, if any, which should follow the selected pointer.")]
         public Cursor Cursor;
 
-        [Tooltip("True to search for a cursor if one isn't explicitly set.")]
-        public bool SearchForCursorIfUnset = true;
+        [Tooltip("If true, search for a cursor if one isn't explicitly set.")]
+        [SerializeField]
+        private bool searchForCursorIfUnset = true;
+        public bool SearchForCursorIfUnset { get { return searchForCursorIfUnset; } set { searchForCursorIfUnset = value; } }
+
+        [Tooltip("If true, always select the best pointer available (OS behavior does not auto-select).")]
+        [SerializeField]
+        private bool autoselectBestAvailable = false;
+        public bool AutoselectBestAvailable { get { return autoselectBestAvailable; } set { autoselectBestAvailable = value; } }
+
+        [Tooltip("The line pointer prefab to use, if any.")]
+        [SerializeField]
+        private GameObject linePointerPrefab = null;
+
+        private PointerLine instantiatedPointerLine;
 
         #endregion
 
         #region Data
 
         private bool started;
+        private bool pointerWasChanged;
 
         private bool addedInputManagerListener;
         private IPointingSource currentPointer;
@@ -47,14 +62,12 @@ namespace HoloToolkit.Unity.InputModule
             started = true;
 
             InputManager.AssertIsInitialized();
-            GazeManager.AssertIsInitialized();
             FocusManager.AssertIsInitialized();
+            GazeManager.AssertIsInitialized();
 
             AddInputManagerListenerIfNeeded();
             FindCursorIfNeeded();
             ConnectBestAvailablePointer();
-
-            Debug.Assert(currentPointer != null, this);
         }
 
         private void OnEnable()
@@ -76,7 +89,8 @@ namespace HoloToolkit.Unity.InputModule
 
         void ISourceStateHandler.OnSourceDetected(SourceStateEventData eventData)
         {
-            if (!IsInputSourcePointerActive || IsGazePointerActive)
+            // If a pointing controller just became available, set it as primary.
+            if (autoselectBestAvailable && SupportsPointingRay(eventData))
             {
                 ConnectBestAvailablePointer();
             }
@@ -92,7 +106,7 @@ namespace HoloToolkit.Unity.InputModule
 
         void IInputHandler.OnInputUp(InputEventData eventData)
         {
-            // Nothing to do on input up.
+            // Let the input fall to the next interactable object.
         }
 
         void IInputHandler.OnInputDown(InputEventData eventData)
@@ -124,7 +138,7 @@ namespace HoloToolkit.Unity.InputModule
 
         private void FindCursorIfNeeded()
         {
-            if ((Cursor == null) && SearchForCursorIfUnset)
+            if ((Cursor == null) && searchForCursorIfUnset)
             {
                 Debug.LogWarningFormat(
                     this,
@@ -178,17 +192,25 @@ namespace HoloToolkit.Unity.InputModule
                     Cursor.Pointer = newPointer;
                 }
             }
+
+            Debug.Assert(currentPointer != null, "No Pointer Set!");
+
+            if (IsGazePointerActive)
+            {
+                DetachInputSourcePointer();
+            }
         }
 
         private void ConnectBestAvailablePointer()
         {
             IPointingSource bestPointer = null;
+            var inputSources = InputManager.Instance.DetectedInputSources;
 
-            foreach (var detectedSource in InputManager.Instance.DetectedInputSources)
+            for (var i = 0; i < inputSources.Count; i++)
             {
-                if (SupportsPointingRay(detectedSource))
+                if (SupportsPointingRay(inputSources[i]))
                 {
-                    AttachInputSourcePointer(detectedSource);
+                    AttachInputSourcePointer(inputSources[i]);
                     bestPointer = inputSourcePointer;
                     break;
                 }
@@ -207,8 +229,6 @@ namespace HoloToolkit.Unity.InputModule
             // TODO: robertes: Investigate how this feels. Since "Down" will often be followed by "Click", is
             //       marking the event as used actually effective in preventing unintended app input during a
             //       pointer change?
-
-            bool pointerWasChanged;
 
             if (SupportsPointingRay(eventData))
             {
@@ -234,7 +254,6 @@ namespace HoloToolkit.Unity.InputModule
                     // TODO: robertes: see if we can treat voice separately from the other simple committers,
                     //       so voice doesn't steal from a pointing controller. I think input Kind would need
                     //       to come through with the event data.
-
                     SetPointer(GazeManager.Instance);
                     pointerWasChanged = true;
                 }
@@ -283,6 +302,45 @@ namespace HoloToolkit.Unity.InputModule
             inputSourcePointer.OwnAllInput = false;
             inputSourcePointer.ExtentOverride = null;
             inputSourcePointer.PrioritizedLayerMasksOverride = null;
+
+            InteractionInputSource interactionInputSource = inputSource as InteractionInputSource;
+
+            // If the InputSource is not an InteractionInputSource, we don't display any ray visualizations.
+            if (interactionInputSource == null)
+            {
+                return;
+            }
+
+            // If no pointing ray prefab has been provided, we return early as there's nothing to display.
+            if (linePointerPrefab == null)
+            {
+                return;
+            }
+
+            // If the pointer line hasn't already been instantiated, create it and store it here.
+            if (instantiatedPointerLine == null)
+            {
+                instantiatedPointerLine = Instantiate(linePointerPrefab).GetComponent<PointerLine>();
+            }
+
+            inputSourcePointer.PointerRay = instantiatedPointerLine;
+
+            Handedness handedness;
+            if (interactionInputSource.TryGetHandedness(sourceId, out handedness))
+            {
+#if UNITY_WSA && UNITY_2017_2_OR_NEWER
+                // This updates the handedness of the pointer line, allowing for re-use if it was already in the scene.
+                instantiatedPointerLine.ChangeHandedness((InteractionSourceHandedness)handedness);
+#endif
+            }
+        }
+
+        private void DetachInputSourcePointer()
+        {
+            if (instantiatedPointerLine != null)
+            {
+                Destroy(instantiatedPointerLine.gameObject);
+            }
         }
 
         private bool IsInputSourcePointerActive

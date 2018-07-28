@@ -14,7 +14,7 @@ public class TeleportScript : MonoBehaviour
     bool warping = false;
     bool warpCancelled = false;
     int layerMask;
-    FadeScript fadeControl;
+    FadeManager fadeManager;
 
     public void EnableMarker()
     {
@@ -32,7 +32,7 @@ public class TeleportScript : MonoBehaviour
 
     void Start ()
     {
-        fadeControl = FadeScript.Instance;
+        fadeManager = FadeManager.Instance;
         warper = MixedRealityTeleport.Instance;
         animationController = GetComponentInChildren<Animator>();
         animationController.StopPlayback();
@@ -57,7 +57,7 @@ public class TeleportScript : MonoBehaviour
 
                     Vector3 hitPos = ActiveMarker.transform.position + Vector3.up * 2.6f;
                     Vector3 goal = hitPos;
-                    fadeControl.DoFade(0.25f, 0.5f, () =>
+                    fadeManager.DoFade(0.25f, 0.5f, () =>
                     {
                         warper.SetWorldPosition(goal);
                         Debug.DrawLine(hitPos, goal);
@@ -75,7 +75,7 @@ public class TeleportScript : MonoBehaviour
         }
         else
         {
-            if (fadeControl.Busy == false && Input.GetButtonDown("Jump"))
+            if (fadeManager.Busy == false && Input.GetButtonDown("Jump"))
             {
                 warping = true;
                 EnableMarker();

@@ -1,8 +1,9 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
-using HoloToolkit.Unity.InputModule;
+using System.Collections.Generic;
 using UnityEngine;
+using HoloToolkit.Unity.InputModule;
 
 namespace HoloToolkit.Unity.SpatialMapping
 {
@@ -10,17 +11,15 @@ namespace HoloToolkit.Unity.SpatialMapping
     /// The TapToPlace class is a basic way to enable users to move objects 
     /// and place them on real world surfaces.
     /// Put this script on the object you want to be able to move. 
-    /// Users will be able to tap objects, gaze elsewhere, and perform the
-    /// tap gesture again to place.
-    /// This script is used in conjunction with GazeManager, GestureManager,
-    /// and SpatialMappingManager.
-    /// TapToPlace also adds a WorldAnchor component to enable persistence.
+    /// Users will be able to tap objects, gaze elsewhere, and perform the tap gesture again to place.
+    /// This script is used in conjunction with GazeManager, WorldAnchorManager, and SpatialMappingManager.
     /// </summary>
-
+    [RequireComponent(typeof(Collider))]
+    [RequireComponent(typeof(Interpolator))]
     public class TapToPlace : MonoBehaviour, IInputClickHandler
     {
-        [Tooltip("Supply a friendly name for the anchor as the key name for the WorldAnchorStore.")]
-        public string SavedAnchorFriendlyName = "SavedAnchorFriendlyName";
+        [Tooltip("Distance from camera to keep the object while placing it.")]
+        public float DefaultGazeDistance = 2.0f;
 
         [Tooltip("Place parent on tap instead of current game object.")]
         public bool PlaceParentOnTap;
@@ -33,150 +32,221 @@ namespace HoloToolkit.Unity.SpatialMapping
         /// Setting this to true will enable the user to move and place the object in the scene.
         /// Useful when you want to place an object immediately.
         /// </summary>
-        [HideInInspector]
         [Tooltip("Setting this to true will enable the user to move and place the object in the scene without needing to tap on the object. Useful when you want to place an object immediately.")]
         public bool IsBeingPlaced;
 
-        /// <summary>
-        /// The object's center might not be in the most convenient place for the user to see it while they place it.
-        /// This allows an offset to be specified to recenter the object as it is being placed.
-        /// </summary>
-        public Vector3 PlacementOffset = new Vector3(0, 0, 0);
+        [Tooltip("Setting this to true will allow this behavior to control the DrawMesh property on the spatial mapping.")]
+        public bool AllowMeshVisualizationControl = true;
+
+        [Tooltip("Should the center of the Collider be used instead of the gameObjects world transform.")]
+        public bool UseColliderCenter;
+
+        private Interpolator interpolator;
 
         /// <summary>
-        /// Manages persisted anchors.
+        /// The default ignore raycast layer built into unity.
         /// </summary>
-        protected WorldAnchorManager anchorManager;
+        private const int IgnoreRaycastLayer = 2;
 
-        /// <summary>
-        /// Controls spatial mapping.  In this script we access spatialMappingManager
-        /// to control rendering and to access the physics layer mask.
-        /// </summary>
-        protected SpatialMappingManager spatialMappingManager;
+        private Dictionary<GameObject, int> layerCache = new Dictionary<GameObject, int>();
+        private Vector3 PlacementPosOffset;
 
         protected virtual void Start()
         {
-            // Make sure we have all the components in the scene we need.
-            anchorManager = WorldAnchorManager.Instance;
-            if (anchorManager == null)
-            {
-                Debug.LogError("This script expects that you have a WorldAnchorManager component in your scene.");
-            }
-
-            spatialMappingManager = SpatialMappingManager.Instance;
-            if (spatialMappingManager == null)
-            {
-                Debug.LogError("This script expects that you have a SpatialMappingManager component in your scene.");
-            }
-
-            if (anchorManager != null && spatialMappingManager != null)
-            {
-                anchorManager.AttachAnchor(gameObject, SavedAnchorFriendlyName);
-            }
-            else
-            {
-                // If we don't have what we need to proceed, we may as well remove ourselves.
-                Destroy(this);
-            }
-
             if (PlaceParentOnTap)
             {
-                if (ParentGameObjectToPlace != null && !gameObject.transform.IsChildOf(ParentGameObjectToPlace.transform))
-                {
-                    Debug.LogError("The specified parent object is not a parent of this object.");
-                }
-
-                DetermineParent();
+                ParentGameObjectToPlace = GetParentToPlace();
+                PlaceParentOnTap = ParentGameObjectToPlace != null;
             }
+
+            interpolator = EnsureInterpolator();
+
+            if (IsBeingPlaced)
+            {
+                StartPlacing();
+            }
+            else // If we are not starting out with actively placing the object, give it a World Anchor
+            {
+                AttachWorldAnchor();
+            }
+        }
+
+        private void OnEnable()
+        {
+            Bounds bounds = transform.GetColliderBounds();
+            PlacementPosOffset = transform.position - bounds.center;
+        }
+
+        /// <summary>
+        /// Returns the predefined GameObject or the immediate parent when it exists
+        /// </summary>
+        /// <returns></returns>
+        private GameObject GetParentToPlace()
+        {
+            if (ParentGameObjectToPlace)
+            {
+                return ParentGameObjectToPlace;
+            }
+
+            return gameObject.transform.parent ? gameObject.transform.parent.gameObject : null;
+        }
+
+        /// <summary>
+        /// Ensures an interpolator on either the parent or on the GameObject itself and returns it.
+        /// </summary>
+        private Interpolator EnsureInterpolator()
+        {
+            var interpolatorHolder = PlaceParentOnTap ? ParentGameObjectToPlace : gameObject;
+            return interpolatorHolder.EnsureComponent<Interpolator>();
         }
 
         protected virtual void Update()
         {
-            // If the user is in placing mode,
-            // update the placement to match the user's gaze.
-            if (IsBeingPlaced)
+            if (!IsBeingPlaced) { return; }
+            Transform cameraTransform = CameraCache.Main.transform;
+
+            Vector3 placementPosition = GetPlacementPosition(cameraTransform.position, cameraTransform.forward, DefaultGazeDistance);
+
+            if (UseColliderCenter)
             {
-                GameObject gameObjectBeingMoved = (PlaceParentOnTap && ParentGameObjectToPlace != null) ? ParentGameObjectToPlace : this.gameObject;
-                
-                // Do a raycast into the world that will only hit the Spatial Mapping mesh.
-                Vector3 headPosition = Camera.main.transform.position;
-                Vector3 gazeDirection = Camera.main.transform.forward;
-
-                // Default to 2 meters in front of user
-                Vector3 proposedPosition = headPosition + gazeDirection * 2.0f;
-               
-                RaycastHit hitInfo;
-                if (Physics.Raycast(headPosition, gazeDirection, out hitInfo, 30.0f, spatialMappingManager.LayerMask))
-                {
-                    // Move this object to where the raycast
-                    // hit the Spatial Mapping mesh.
-                    proposedPosition = hitInfo.point;
-                }
-
-                // if we are placing the parent, then we need to cancel out this game object's local position from
-                // the parent position. 
-                if (PlaceParentOnTap && ParentGameObjectToPlace != null)
-                {
-                    proposedPosition += (gameObjectBeingMoved.transform.position- gameObject.transform.position);
-                }
-
-                // Here is where you might consider adding intelligence
-                // to how the object is placed.  For example, consider
-                // placing based on the bottom of the object's
-                // collider so it sits properly on surfaces.
-                gameObjectBeingMoved.transform.position = Vector3.Lerp(gameObjectBeingMoved.transform.position,proposedPosition + PlacementOffset,0.4f);
-
-                // Rotate this object to face the user.
-                Quaternion rot = Quaternion.LookRotation(Camera.main.transform.forward, Vector3.up);
-                
-                // cancel out non-y rotation
-                rot.x = 0;
-                rot.z = 0;
-                
-                gameObjectBeingMoved.transform.rotation = rot;
+                placementPosition += PlacementPosOffset;
             }
+
+            // Here is where you might consider adding intelligence
+            // to how the object is placed.  For example, consider
+            // placing based on the bottom of the object's
+            // collider so it sits properly on surfaces.
+
+            if (PlaceParentOnTap)
+            {
+                placementPosition = ParentGameObjectToPlace.transform.position + (placementPosition - gameObject.transform.position);
+            }
+
+            // update the placement to match the user's gaze.
+            interpolator.SetTargetPosition(placementPosition);
+
+            // Rotate this object to face the user.
+            interpolator.SetTargetRotation(Quaternion.Euler(0, cameraTransform.localEulerAngles.y, 0));
         }
 
         public virtual void OnInputClicked(InputClickedEventData eventData)
         {
             // On each tap gesture, toggle whether the user is in placing mode.
             IsBeingPlaced = !IsBeingPlaced;
-
-            // If the user is in placing mode, display the spatial mapping mesh.
-            if (IsBeingPlaced)
-            {
-                spatialMappingManager.DrawVisualMeshes = true;
-
-                Debug.Log(gameObject.name + " : Removing existing world anchor if any.");
-
-                anchorManager.RemoveAnchor(gameObject);
-            }
-            // If the user is not in placing mode, hide the spatial mapping mesh.
-            else
-            {
-                spatialMappingManager.DrawVisualMeshes = false;
-                // Add world anchor when object placement is done.
-                anchorManager.AttachAnchor(gameObject, SavedAnchorFriendlyName);
-            }
-
-            eventData.Use(); // Mark the event as used, so it doesn't fall through to other handlers.
+            HandlePlacement();
+            eventData.Use();
         }
 
-        private void DetermineParent()
+        private void HandlePlacement()
         {
-            if (ParentGameObjectToPlace == null)
+            if (IsBeingPlaced)
             {
-                if (gameObject.transform.parent == null)
+                StartPlacing();
+            }
+            else
+            {
+                StopPlacing();
+            }
+        }
+        private void StartPlacing()
+        {
+            var layerCacheTarget = PlaceParentOnTap ? ParentGameObjectToPlace : gameObject;
+            layerCacheTarget.SetLayerRecursively(IgnoreRaycastLayer, out layerCache);
+            InputManager.Instance.PushModalInputHandler(gameObject);
+
+            ToggleSpatialMesh();
+            RemoveWorldAnchor();
+        }
+
+        private void StopPlacing()
+        {
+            var layerCacheTarget = PlaceParentOnTap ? ParentGameObjectToPlace : gameObject;
+            layerCacheTarget.ApplyLayerCacheRecursively(layerCache);
+            InputManager.Instance.PopModalInputHandler();
+
+            ToggleSpatialMesh();
+            AttachWorldAnchor();
+        }
+
+        private void AttachWorldAnchor()
+        {
+            if (WorldAnchorManager.Instance != null)
+            {
+                // Add world anchor when object placement is done.
+                WorldAnchorManager.Instance.AttachAnchor(PlaceParentOnTap ? ParentGameObjectToPlace : gameObject);
+            }
+        }
+
+        private void RemoveWorldAnchor()
+        {
+            if (WorldAnchorManager.Instance != null)
+            {
+                //Removes existing world anchor if any exist.
+                WorldAnchorManager.Instance.RemoveAnchor(PlaceParentOnTap ? ParentGameObjectToPlace : gameObject);
+            }
+        }
+
+        /// <summary>
+        /// If the user is in placing mode, display the spatial mapping mesh.
+        /// </summary>
+        private void ToggleSpatialMesh()
+        {
+            if (SpatialMappingManager.Instance != null && AllowMeshVisualizationControl)
+            {
+                SpatialMappingManager.Instance.DrawVisualMeshes = IsBeingPlaced;
+            }
+        }
+
+        /// <summary>
+        /// If we're using the spatial mapping, check to see if we got a hit, else use the gaze position.
+        /// </summary>
+        /// <returns>Placement position in front of the user</returns>
+        private static Vector3 GetPlacementPosition(Vector3 headPosition, Vector3 gazeDirection, float defaultGazeDistance)
+        {
+            RaycastHit hitInfo;
+            if (SpatialMappingRaycast(headPosition, gazeDirection, out hitInfo))
+            {
+                return hitInfo.point;
+            }
+            return GetGazePlacementPosition(headPosition, gazeDirection, defaultGazeDistance);
+        }
+
+        /// <summary>
+        /// Does a raycast on the spatial mapping layer to try to find a hit.
+        /// </summary>
+        /// <param name="origin">Origin of the raycast</param>
+        /// <param name="direction">Direction of the raycast</param>
+        /// <param name="spatialMapHit">Result of the raycast when a hit occurred</param>
+        /// <returns>Whether it found a hit or not</returns>
+        private static bool SpatialMappingRaycast(Vector3 origin, Vector3 direction, out RaycastHit spatialMapHit)
+        {
+            if (SpatialMappingManager.Instance != null)
+            {
+                RaycastHit hitInfo;
+                if (Physics.Raycast(origin, direction, out hitInfo, 30.0f, SpatialMappingManager.Instance.LayerMask))
                 {
-                    Debug.LogError("The selected GameObject has no parent.");
-                    PlaceParentOnTap = false;
-                }
-                else
-                {
-                    Debug.LogError("No parent specified. Using immediate parent instead: " + gameObject.transform.parent.gameObject.name);
-                    ParentGameObjectToPlace = gameObject.transform.parent.gameObject;
+                    spatialMapHit = hitInfo;
+                    return true;
                 }
             }
+            spatialMapHit = new RaycastHit();
+            return false;
+        }
+
+        /// <summary>
+        /// Get placement position either from GazeManager hit or in front of the user as backup
+        /// </summary>
+        /// <param name="headPosition">Position of the users head</param>
+        /// <param name="gazeDirection">Gaze direction of the user</param>
+        /// <param name="defaultGazeDistance">Default placement distance in front of the user</param>
+        /// <returns>Placement position in front of the user</returns>
+        private static Vector3 GetGazePlacementPosition(Vector3 headPosition, Vector3 gazeDirection, float defaultGazeDistance)
+        {
+            if (GazeManager.Instance.HitObject != null)
+            {
+                return GazeManager.Instance.HitPosition;
+            }
+            return headPosition + gazeDirection * defaultGazeDistance;
         }
     }
 }

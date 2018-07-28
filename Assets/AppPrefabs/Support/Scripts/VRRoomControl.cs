@@ -1,10 +1,6 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-using HoloToolkit.Unity.SpatialMapping;
-using HoloToolkit.Unity.Playspace;
-using HoloToolkit.Unity;
+﻿using HoloToolkit.Unity;
 using HoloToolkit.Unity.Boundary;
+using UnityEngine;
 
 public class VRRoomControl : SingleInstance<VRRoomControl>
 {

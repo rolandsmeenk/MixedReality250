@@ -153,9 +153,9 @@ namespace HoloToolkit.Examples.SharingWithUNET
                 {
                     Debug.Log("Getting in line");
                     WaitingForFreePath = true;
-                    if (fadeControl != null && fadeControl.Busy == false)
+                    if (fadeManager != null && fadeManager.Busy == false)
                     {
-                        fadeControl.DoFade(0.5f, 0.5f,
+                        fadeManager.DoFade(0.5f, 0.5f,
                             () =>
                             {
                                 MixedRealityTeleport warper = MixedRealityTeleport.Instance;
@@ -280,7 +280,7 @@ namespace HoloToolkit.Examples.SharingWithUNET
 
         private Material cloudMaterial;
 
-        private FadeScript fadeControl;
+        private FadeManager fadeManager;
 
         public bool AllowManualImmersionControl = false;
 
@@ -297,7 +297,7 @@ namespace HoloToolkit.Examples.SharingWithUNET
         void Awake()
         {
             cloudMaterial = GetComponentInChildren<MeshRenderer>().material;
-            fadeControl = FadeScript.Instance;
+            fadeManager = FadeManager.Instance;
             networkDiscovery = NetworkDiscoveryWithAnchors.Instance;
             anchorManager = UNetAnchorManager.Instance;
             levelState = LevelControl.Instance;
@@ -352,9 +352,9 @@ namespace HoloToolkit.Examples.SharingWithUNET
                 {
                     Debug.Log("Defaulting to bird's eye view");
                     CmdSendPathIndex(-1);
-                    if (opaqueDisplay && fadeControl != null && fadeControl.Busy == false)
+                    if (opaqueDisplay && fadeManager != null && fadeManager.Busy == false)
                     {
-                        fadeControl.DoFade(0.5f, 0.5f,
+                        fadeManager.DoFade(0.5f, 0.5f,
                             () =>
                             {
                                 MixedRealityTeleport warper = MixedRealityTeleport.Instance;
@@ -505,7 +505,7 @@ namespace HoloToolkit.Examples.SharingWithUNET
             // and rotation
             CmdTransform(transform.localPosition, transform.localRotation);
 
-            if (AllowManualImmersionControl && fadeControl.Busy == false && levelState.isActiveAndEnabled)
+            if (AllowManualImmersionControl && fadeManager.Busy == false && levelState.isActiveAndEnabled)
             {
                 if (Input.GetButtonUp("Fire3"))
                 {

@@ -2,7 +2,6 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using UnityEngine;
-using UnityEngine.XR.WSA.Input;
 
 namespace HoloToolkit.Unity.InputModule
 {
@@ -13,7 +12,7 @@ namespace HoloToolkit.Unity.InputModule
     public interface IInputSource
     {
         /// <summary>
-        /// Returns the input info that that the input source can provide.
+        /// Returns the input info that the input source can provide.
         /// </summary>
         SupportedInputInfo GetSupportedInputInfo(uint sourceId);
 
@@ -24,7 +23,7 @@ namespace HoloToolkit.Unity.InputModule
         /// <param name="inputInfo">Input info type that we want to get information about.</param>
         bool SupportsInputInfo(uint sourceId, SupportedInputInfo inputInfo);
 
-        bool TryGetSourceKind(uint sourceId, out InteractionSourceKind sourceKind);
+        bool TryGetSourceKind(uint sourceId, out InteractionSourceInfo sourceKind);
 
         /// <summary>
         /// Returns the position of the input source, if available.
@@ -34,7 +33,7 @@ namespace HoloToolkit.Unity.InputModule
         /// <param name="position">Out parameter filled with the position if available, otherwise <see cref="Vector3.zero"/>.</param>
         /// <returns>True if a position was retrieved, false if not.</returns>
         bool TryGetPointerPosition(uint sourceId, out Vector3 position);
-        
+
         /// <summary>
         /// Returns the position of the input source, if available.
         /// Not all input sources support positional information, and those that do may not always have it available.
@@ -52,7 +51,7 @@ namespace HoloToolkit.Unity.InputModule
         /// <param name="rotation">Out parameter filled with the rotation if available, otherwise <see cref="Quaternion.identity"/>.</param>
         /// <returns>True if an rotation was retrieved, false if not.</returns>
         bool TryGetPointerRotation(uint sourceId, out Quaternion rotation);
-        
+
         /// <summary>
         /// Returns the rotation of the input source, if available.
         /// Not all input sources support rotation information, and those that do may not always have it available.

@@ -263,7 +263,7 @@ public class LevelControl : NetworkBehaviour
         }
     }
 
-    FadeScript fadeScript;
+    FadeManager fadeManager;
     /// <summary>
     /// Keeps a mapping from user name to their game objects.
     /// </summary>
@@ -349,7 +349,7 @@ public class LevelControl : NetworkBehaviour
         lineRend.SetPositions(points);
 #endif
 
-        fadeScript = FadeScript.Instance;
+        fadeManager = FadeManager.Instance;
         warper = MixedRealityTeleport.Instance;
         startScale = transform.localScale;
         SetGoalLights();
@@ -919,9 +919,9 @@ public class LevelControl : NetworkBehaviour
     /// <param name="pathIndex">The path index to set</param>
     public void SetPathIndex(int pathIndex)
     {
-        if (UnityEngine.XR.WSA.HolographicSettings.IsDisplayOpaque && warper != null && fadeScript != null && !fadeScript.Busy && pathIndex != onPathIndex)
+        if (UnityEngine.XR.WSA.HolographicSettings.IsDisplayOpaque && warper != null && fadeManager != null && !fadeManager.Busy && pathIndex != onPathIndex)
         {
-            fadeScript.DoFade(1, 1,
+            fadeManager.DoFade(1, 1,
                 () =>
                 {
                     SetGoalLights();
@@ -955,7 +955,7 @@ public class LevelControl : NetworkBehaviour
 
                 }, null);
         }
-        else if(fadeScript != null && fadeScript.Busy)
+        else if(fadeManager != null && fadeManager.Busy)
         {
             DeferredPathIndex = pathIndex;
             Debug.Log("Warping later");
@@ -972,9 +972,9 @@ public class LevelControl : NetworkBehaviour
     // If the user gets stuck in the world, this puts them back to the beginning of their path.
     public void ResetPosition()
     {
-        if (fadeScript != null && !fadeScript.Busy && onPathIndex >= 0)
+        if (fadeManager != null && !fadeManager.Busy && onPathIndex >= 0)
         {
-            fadeScript.DoFade(1, 1,
+            fadeManager.DoFade(1, 1,
                 () =>
                 {
                     SetGoalLights();
