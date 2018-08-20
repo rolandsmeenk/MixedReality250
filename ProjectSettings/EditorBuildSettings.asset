@@ -4,4 +4,7 @@
 EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
-  m_Scenes: []
+  m_Scenes:
+  - enabled: 1
+    path: Assets/AppPrefabs/Support/ChapterScenes/SharedMixedRealityLand.unity
+    guid: f51132e3f4a640143af4b409039dcc6f
