@@ -3,7 +3,7 @@
 This is the tutorial presented at //build2017. 
 https://docs.microsoft.com/en-us/windows/mixed-reality/mixed-reality-250
 
-** Updated to Unity2017.4.6f1 and MixedRealityToolkit 2017.4.0.0 **
+** Updated to Unity2017.4.6f1 and MixedRealityToolkit 2017.4.1.0 **
 
 ## Prerequisites:
 1. See [Development PC specs](https://developer.microsoft.com/en-us/windows/mixed-reality/install_the_tools#developing_for_immersive_headsets) for tips on developing for immersive headsets.
