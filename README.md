@@ -1,8 +1,9 @@
 ﻿# Mixed Reality 250 
 
-This is the tutorial presented at //build2017.  Link to documentation is forthcoming. 
+This is the tutorial presented at //build2017. 
+https://docs.microsoft.com/en-us/windows/mixed-reality/mixed-reality-250
 
-**Current Unity Editor Project Version: Unity 2017.2.0f2-MRTP.**
+** Updated to Unity2017.4.6f1 and MixedRealityToolkit 2017.4.0.0 **
 
 ## Prerequisites:
 1. See [Development PC specs](https://developer.microsoft.com/en-us/windows/mixed-reality/install_the_tools#developing_for_immersive_headsets) for tips on developing for immersive headsets.
